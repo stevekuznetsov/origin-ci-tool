@@ -6,7 +6,8 @@ base_requires = [
     'ansible==3.0.0',
     'backports.shutil_get_terminal_size',
     'semver',
-    'junit_xml'
+    'junit_xml',
+    'structlog'
 ]
 
 test_requires = base_requires + [
