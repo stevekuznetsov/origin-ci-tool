@@ -1,7 +1,7 @@
 # coding=utf-8
 from __future__ import absolute_import, division, print_function
 
-from click import command, pass_context
+from click import ClickException, command, pass_context
 
 from ..util.common_options import ansible_output_options
 from ..util.repository_options import Repository, repository_argument
@@ -90,8 +90,19 @@ def install_logging(ansible_client):
 
     :param ansible_client: Ansible client
     """
-    # TODO: When the installer is broken out, use it here
-    pass
+    domain = '{}.xip.io'.format(get_master_ip(ansible_client.registered_vagrant_machines()))
+    ansible_client.run_playbook(
+        playbook_relative_path='byo/config',
+        playbook_variables={
+            'ansible_become_user': 'root',
+            'deployment_type': 'origin',
+            'openshift_master_default_subdomain': domain,
+            'openshift_hosted_logging_deploy': True,
+        },
+        option_overrides={
+            'become': True
+        }
+    )
 
 
 def install_metrics(ansible_client):
@@ -103,8 +114,27 @@ def install_metrics(ansible_client):
 
     :param ansible_client: Ansible client
     """
-    # TODO: When the installer is broken out, use it here
-    pass
+    domain = '{}.xip.io'.format(get_master_ip(ansible_client.registered_vagrant_machines()))
+    ansible_client.run_playbook(
+        playbook_relative_path='byo/config',
+        playbook_variables={
+            'ansible_become_user': 'root',
+            'deployment_type': 'origin',
+            'openshift_master_default_subdomain': domain,
+            'openshift_hosted_metrics_deploy': True,
+        },
+        option_overrides={
+            'become': True
+        }
+    )
+
+
+def get_master_ip(hosts):
+    for host in hosts:
+        if 'masters' in host.groups:
+            return host.host
+
+    raise ClickException('No master host found, could not determine cluster domain!')
 
 
 def install_source_to_image(ansible_client):
