@@ -6,12 +6,12 @@ from unittest import TestCase
 
 from click.testing import CliRunner
 from mock import patch
-from oct.config.ansible_client import AnsibleCoreClient
+from os import environ
+
+import oct.config.configuration as configuration_module
 from oct.config.configuration import Configuration
-from oct.config.variables import PlaybookExtraVariables
 from oct.oct import oct_command
 from oct.tests.unit.formatting_util import format_assertion_failure, format_expectation
-from os import environ
 
 # Allow for run-time triggering of stack trace output
 show_stack_trace = 'SHOW_STACK_TRACE' in environ
@@ -24,6 +24,7 @@ CLICK_RC_EXCEPTION = 1
 CLICK_RC_USAGE = 2
 
 DUMMY_INVENTORY_DIR = 'dummy-inventory-dir'
+
 
 class TestCaseParameters(object):
     def __init__(self, args, expected_result=CLICK_RC_OK, expected_calls=None, expected_output=None):
@@ -68,33 +69,13 @@ class PlaybookRunnerTestCase(TestCase):
             ),
             patch.object(
                 target=Configuration,
-                attribute='load_ansible_client_configuration',
-                new=lambda configuration: setattr(configuration, 'ansible_client_configuration', AnsibleCoreClient(inventory_dir=DUMMY_INVENTORY_DIR))
-            ),
-            patch.object(
-                target=Configuration,
-                attribute='load_ansible_variables',
-                new=lambda configuration: setattr(configuration, 'ansible_variables', PlaybookExtraVariables())
-            ),
-            patch.object(
-                target=Configuration,
-                attribute='write_ansible_client_configuration',
-                new=lambda _: None
-            ),
-            patch.object(
-                target=Configuration,
-                attribute='write_ansible_variables',
-                new=lambda _: None
-            ),
-            patch.object(
-                target=Configuration,
                 attribute='load_vagrant_metadata',
-                new=lambda _: None
+                new=lambda _: []
             ),
             patch.object(
-                target=Configuration,
-                attribute='initialize_directories',
-                new=lambda _: None
+                target=configuration_module,
+                attribute='load_configuration',
+                new=lambda class_type, _, *init_args, **init_kwargs: class_type(*init_args, **init_kwargs)
             )
         ]
         for patcher in patches:

@@ -1,7 +1,9 @@
 # coding=utf-8
 from __future__ import absolute_import, division, print_function
 
-from os import getenv, listdir, mkdir
+from atexit import register
+
+from os import getenv, listdir, makedirs, mkdir
 from os.path import abspath, exists, expanduser, isdir, join
 from yaml import dump, load
 
@@ -24,6 +26,53 @@ _AWS_CLIENT_CONFIGURATION_FILE = 'aws_client_configuration.yml'
 _AWS_VARIABLES_FILE = 'aws_variables.yml'
 
 
+def load_configuration(class_type, path, *init_args, **init_kwargs):
+    """
+    Load a configuration object, first attempting to do so from
+    a path and falling back to creating a default instance. This
+    function will furthermore register a serialization of the
+    object on process exit, ensuring we always leave the file-
+    system with the most up-to-date version of the data.
+
+    :param class_type: class of the object to load
+    :param path: path to attempt to load from
+    :param init_args: optional arguments to __init__()
+    :param init_kwargs: optional arguments to __init__()
+    :return: the loaded or defaulted instance of the class
+    """
+    if not exists(path):
+        loaded_object = class_type(*init_args, **init_kwargs)
+    else:
+        with open(path) as configuration_file:
+            loaded_object = load(configuration_file)
+
+    # ensure that the object is saved on process exit
+    register(
+        save_configuration,
+        loaded_object,
+        path
+    )
+
+    return loaded_object
+
+
+def save_configuration(data, path):
+    """
+    Save a configuration object to disk.
+
+    :param data: configuration object to save
+    :param path: where to save the object
+    """
+    makedirs(path, exist_ok=True)
+    with open(path, 'w+') as configuration_file:
+        dump(
+            data,
+            configuration_file,
+            default_flow_style=False,
+            explicit_start=True
+        )
+
+
 class Configuration(object):
     """
     This container holds all of the state that this tool needs
@@ -41,42 +90,35 @@ class Configuration(object):
         # path to the local configuration directory
         self._path = abspath(join(base_dir, 'origin-ci-tool'))
 
-        self.initialize_directories()
-
         # configuration options for Ansible core
-        self.ansible_client_configuration = None
-        self.load_ansible_client_configuration()
+        self.ansible_client_configuration = load_configuration(
+            AnsibleCoreClient,
+            self.ansible_client_configuration_path,
+            inventory_dir=self.ansible_inventory_path,
+            log_directory=self.ansible_log_path
+        )
 
         # extra variables we want to send to Ansible playbooks
-        self.ansible_variables = None
-        self.load_ansible_variables()
+        self.ansible_variables = load_configuration(
+            PlaybookExtraVariables,
+            self.variables_path
+        )
 
         # metadata about active Vagrant local VMs
-        self._vagrant_metadata = []
-        self.load_vagrant_metadata()
+        self._vagrant_metadata = self.load_vagrant_metadata()
 
         # configuration options for AWS client
-        self.aws_client_configuration = None
-        self.load_aws_client_configuration()
+        self.aws_client_configuration = load_configuration(
+            AWSClientConfiguration,
+            self.aws_client_configuration_path
+        )
 
         # extra variables we want to send to Ansible playbooks
         # that touch the AWS API
-        self.aws_variables = None
-        self.load_aws_variables()
-
-    def initialize_directories(self):
-        """
-        Initialize directories on the filesystem that we will
-        expect to exist in the future.
-        """
-        directories = [
-            self._path,
-            self.ansible_log_path,
-            self.vagrant_directory_root
-        ]
-        for directory in directories:
-            if not exists(directory):
-                mkdir(directory)
+        self.aws_variables = load_configuration(
+            AWSVariables,
+            self.aws_variables_path
+        )
 
     def run_playbook(self, playbook_relative_path, playbook_variables=None, option_overrides=None):
         """
@@ -114,35 +156,6 @@ class Configuration(object):
         """
         return join(self._path, _ANSIBLE_CLIENT_CONFIGURATION_FILE)
 
-    def load_ansible_client_configuration(self):
-        """
-        Load the Ansible core configuration options from disk,
-        or if they have not yet been written to disk, use the
-        default values and write them for future callers.
-        """
-        if not exists(self.ansible_client_configuration_path):
-            self.ansible_client_configuration = AnsibleCoreClient(
-                inventory_dir=self.ansible_inventory_path,
-                log_directory=self.ansible_log_path
-            )
-            self.write_ansible_client_configuration()
-        else:
-            with open(self.ansible_client_configuration_path) as configuration_file:
-                self.ansible_client_configuration = load(configuration_file)
-
-    def write_ansible_client_configuration(self):
-        """
-        Write the current set of Ansible core configuration
-        options to disk.
-        """
-        with open(self.ansible_client_configuration_path, 'w+') as configuration_file:
-            dump(
-                self.ansible_client_configuration,
-                configuration_file,
-                default_flow_style=False,
-                explicit_start=True
-            )
-
     @property
     def variables_path(self):
         """
@@ -150,32 +163,6 @@ class Configuration(object):
         :return: absolute path to the Ansible playbook extra variables
         """
         return join(self._path, _ANSIBLE_VARIABLES_FILE)
-
-    def load_ansible_variables(self):
-        """
-        Load the Ansible extra playbook variables from disk,
-        or if they have not yet been written to disk, use the
-        default values and write them for future callers.
-        """
-        if not exists(self.variables_path):
-            self.ansible_variables = PlaybookExtraVariables()
-            self.write_ansible_variables()
-        else:
-            with open(self.variables_path) as variables_file:
-                self.ansible_variables = load(variables_file)
-
-    def write_ansible_variables(self):
-        """
-        Write the current set of Ansible extra playbook
-        variables to disk.
-        """
-        with open(self.variables_path, 'w+') as variables_file:
-            dump(
-                self.ansible_variables,
-                variables_file,
-                default_flow_style=False,
-                explicit_start=True
-            )
 
     @property
     def vagrant_directory_root(self):
@@ -236,6 +223,7 @@ class Configuration(object):
         Load metadata for the Vagrant virtual machines
         that we have provisioned with this tool.
         """
+        metadata = []
         if not exists(self.vagrant_directory_root):
             mkdir(self.vagrant_directory_root)
         else:
@@ -243,7 +231,9 @@ class Configuration(object):
                 variables_file = join(self.vagrant_directory_root, content, 'variables.yml')
                 groups_file = join(self.vagrant_directory_root, content, 'groups.yml')
                 if exists(variables_file):
-                    self.register_vagrant_host(VagrantVMMetadata(variable_file=variables_file, group_file=groups_file))
+                    metadata.append(VagrantVMMetadata(variable_file=variables_file, group_file=groups_file))
+
+        return metadata
 
     def registered_vagrant_machines(self):
         """
@@ -251,20 +241,6 @@ class Configuration(object):
         :return: the Vagrant metadata
         """
         return self._vagrant_metadata
-
-    def register_vagrant_host(self, data):
-        """
-        Register a new host by updating metadata records for the
-        new VM both in the in-memory cache for this process and
-        the on-disk records that will persist past this CLI call.
-
-        :param data: VagrantVMMetadata for the host
-        """
-        if not isinstance(data, VagrantVMMetadata):
-            raise TypeError('Registering a machine requires {}, got {} instead!'.format(type(VagrantVMMetadata), type(data)))
-        else:
-            self._vagrant_metadata.append(data)
-            data.write()
 
     @property
     def ansible_log_path(self):
@@ -282,32 +258,6 @@ class Configuration(object):
         """
         return join(self._path, _AWS_CLIENT_CONFIGURATION_FILE)
 
-    def load_aws_client_configuration(self):
-        """
-        Load the AWS client configuration from disk, or if
-        they have not yet been written to disk, use the
-        default values and write them for future callers.
-        """
-        if not exists(self.aws_client_configuration_path):
-            self.aws_client_configuration = AWSClientConfiguration()
-            self.write_aws_client_configuration()
-        else:
-            with open(self.aws_client_configuration_path) as aws_client_configuration_file:
-                self.aws_client_configuration = load(aws_client_configuration_file)
-
-    def write_aws_client_configuration(self):
-        """
-        Write the current set of AWS client configuration
-        variables to disk.
-        """
-        with open(self.aws_client_configuration_path, 'w+') as aws_client_configuration_file:
-            dump(
-                self.aws_client_configuration,
-                aws_client_configuration_file,
-                default_flow_style=False,
-                explicit_start=True
-            )
-
     @property
     def aws_variables_path(self):
         """
@@ -315,29 +265,3 @@ class Configuration(object):
         :return: absolute path to the AWS client configuration
         """
         return join(self._path, _AWS_VARIABLES_FILE)
-
-    def load_aws_variables(self):
-        """
-        Load the AWS client configuration from disk, or if
-        they have not yet been written to disk, use the
-        default values and write them for future callers.
-        """
-        if not exists(self.aws_variables_path):
-            self.aws_variables = AWSVariables()
-            self.write_aws_variables()
-        else:
-            with open(self.aws_variables_path) as aws_variables_file:
-                self.aws_variables = load(aws_variables_file)
-
-    def write_aws_variables(self):
-        """
-        Write the current set of AWS client configuration
-        variables to disk.
-        """
-        with open(self.aws_variables_path, 'w+') as aws_variables_file:
-            dump(
-                self.aws_variables,
-                aws_variables_file,
-                default_flow_style=False,
-                explicit_start=True
-            )
