@@ -63,12 +63,6 @@ will be necessary. Install it with:
 
     $ sudo pip install virtualenv
 
-Navigate to a directory where the source for this tool will live, and clone it using ``git``:
-
-.. code-block:: shell
-
-    $ git clone https://github.com/stevekuznetsov/origin-ci-tool.git
-
 Now, create a virtual environment. In the following examples, the environment is named and created in a directory ``venv``. On
 Linux systems, you will want to allow the virtual environment to access system site packages, as running Ansible against the
 local host requires Python bindings for ``yum`` and ``dnf``, which cannot be installed in the virtual environment:
@@ -93,7 +87,7 @@ Install Ansible and the ``origin-ci-tool`` in the virtual environment:
 
 .. code-block:: shell
 
-    $ pip install ./origin-ci-tool --process-dependency-links
+    $ pip install git+https://github.com/openshift/origin-ci-tool.git --process-dependency-links
 
 You are now ready to use the ``oct`` CLI tool. If you want to use this virtual environment and get access to ``oct`` every time
 you open a shell, add the activate line to your ``~/.bashrc``:
