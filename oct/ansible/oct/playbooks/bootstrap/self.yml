@@ -61,3 +61,4 @@
         - ruby-devel
         - vagrant
         - libguestfs-tools
+      when: origin_ci_bootstrap_image_dependencies
