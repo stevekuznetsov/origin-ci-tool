@@ -59,6 +59,10 @@
     state: present
   when: origin_ci_isolated_enabledrepos is not defined
 
+- name: work around docker install bug by disabling SELinux
+  selinux:
+    state: 'permissive'
+
 - name: 'install {{ origin_ci_isolated_package }} using selected repos'
   yum:
     name: '{{ origin_ci_isolated_package }}'
@@ -66,6 +70,10 @@
     disablerepo: '{{ origin_ci_isolated_disabledrepos }}'
     enablerepo: '{{ origin_ci_isolated_enabledrepos }}'
   when: origin_ci_isolated_enabledrepos is defined
+
+- name: undo work-around for docker install bug by enabling SELinux
+  selinux:
+    state: 'enforcing'
 
 - name: 'remove temporary repositories that we needed to install {{ origin_ci_isolated_package }}'
   yum_repository:
