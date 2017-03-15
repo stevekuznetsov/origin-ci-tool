@@ -34,17 +34,24 @@ class CallbackModule(CallbackBase):
 
         # we track the entirety of our actions as a
         # suite, which we can create at the end. For
-        # that, we need to keep track of test cases
+        # that, we need to keep track of test suites
         # during execution and the name of the play-
         # book we are running
-        self.test_cases = []
+        self.test_suites = {}
         self.playbook_name = ''
 
         super(CallbackModule, self).__init__(*args, **kwargs)
 
+    def append_test_case(self, test_case):
+        play_name = self.current_task._parent._play.get_name()
+        if play_name in self.test_suites:
+            self.test_suites[play_name].append(test_case)
+        else:
+            self.test_suites[play_name] = [test_case]
+
     def test_case_for_result(self, result):
         return TestCase(
-            name='[{}] {}: {}'.format(result._host, self.current_task._parent._play.get_name(), self.current_task.get_name()),
+            name='[{}] {}'.format(result._host, self.current_task.get_name()),
             elapsed_sec=timer() - self.current_task_start,
         )
 
@@ -106,7 +113,7 @@ class CallbackModule(CallbackBase):
 
         :param result: result of the last task
         """
-        self.test_cases.append(self.test_case_for_result(result))
+        self.append_test_case(self.test_case_for_result(result))
 
     def v2_runner_on_failed(self, result, ignore_errors=False):
         """
@@ -122,7 +129,7 @@ class CallbackModule(CallbackBase):
         test_case = self.test_case_for_result(result)
         if not ignore_errors:
             test_case.add_failure_info(format_result(result._result))
-        self.test_cases.append(test_case)
+        self.append_test_case(test_case)
 
     def v2_runner_on_unreachable(self, result):
         """
@@ -135,7 +142,7 @@ class CallbackModule(CallbackBase):
         """
         test_case = self.test_case_for_result(result)
         test_case.add_error_info(format_result(result._result))
-        self.test_cases.append(test_case)
+        self.append_test_case(test_case)
 
     def v2_runner_on_skipped(self, result):
         """
@@ -146,7 +153,7 @@ class CallbackModule(CallbackBase):
         """
         test_case = self.test_case_for_result(result)
         test_case.add_skipped_info(format_result(result._result))
-        self.test_cases.append(test_case)
+        self.append_test_case(test_case)
 
     def v2_playbook_on_stats(self, stats):
         """
@@ -158,7 +165,9 @@ class CallbackModule(CallbackBase):
 
         :param stats: statistics about the run
         """
-        suite = TestSuite(self.playbook_name, self.test_cases)
+        suites = []
+        for play_name in self.test_suites:
+            suites.append(TestSuite(play_name, self.test_suites[play_name]))
 
         if 'ANSIBLE_JUNIT_DIR' in os.environ:
             log_dir = abspath(getenv('ANSIBLE_JUNIT_DIR'))
@@ -181,7 +190,7 @@ class CallbackModule(CallbackBase):
                 break
 
         with open(log_filename, 'w') as result_file:
-            TestSuite.to_file(result_file, [suite])
+            TestSuite.to_file(result_file, suites)
 
 
 def format_result(result):
