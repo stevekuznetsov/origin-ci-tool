@@ -134,22 +134,26 @@
 
 - name: determine where updated SSH configuration should go
   set_fact:
-    origin_ci_ssh_config_file: '{{ origin_ci_inventory_dir }}/.ssh_config'
+    origin_ci_ssh_config_files: 
+      - '{{ origin_ci_inventory_dir }}/.ssh_config'
   when: origin_ci_ssh_config_strategy == 'discrete'
 
 - name: determine where updated SSH configuration should go
   set_fact:
-    origin_ci_ssh_config_file: '{{ ansible_env.HOME }}/.ssh/config'
+    origin_ci_ssh_config_files: 
+      - '{{ origin_ci_inventory_dir }}/.ssh_config'
+      - '{{ ansible_env.HOME }}/.ssh/config'
   when: origin_ci_ssh_config_strategy == 'update'
 
 - name: ensure the targeted SSH configuration file exists
   file:
-    path: '{{ origin_ci_ssh_config_file }}'
+    path: '{{ item }}'
     state: touch
+  with_items: '{{ origin_ci_ssh_config_files }}'
 
 - name: update the SSH configuration
   blockinfile:
-    dest: '{{ origin_ci_ssh_config_file }}'
+    dest: '{{ item }}'
     block: >
       Host {{ origin_ci_aws_hostname }} {{ origin_ci_aws_host }}
         HostName {{ origin_ci_aws_host }}
@@ -163,3 +167,4 @@
         LogLevel FATAL
     state: present
     marker: '# {mark} ANSIBLE MANAGED BLOCK FOR HOST {{ origin_ci_aws_hostname }}'
+  with_items: '{{ origin_ci_ssh_config_files }}'
